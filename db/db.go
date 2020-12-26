@@ -3,9 +3,11 @@ package db
 import (
 	"context"
 	"github.com/sysu-yunz/doubanAnalysis/log"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"time"
 )
 
 type MgoC struct {
@@ -51,4 +53,34 @@ func (c *MgoC) InsertMoviesBasic(ms []Movie) {
 	}
 
 	log.Debug("Inserted movie %+v ", res)
+}
+
+func (c *MgoC) GetMovies() *mongo.Cursor {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	col := c.Database("douban").Collection("movie")
+	cur, err := col.Find(ctx, bson.M{"date":bson.M{
+		"$lt": "2013-10-31",
+	}})
+	if err != nil {
+		log.Error("Finding watches %+v", err)
+	}
+
+	return cur
+
+}
+
+func (c *MgoC) UpdateMovieRT(m Movie) {
+	filter := bson.D{{"subject", m.Subject}}
+	update := bson.M{"$set": bson.M{"ep": m.Ep, "runtime": m.RunTime}}
+
+	col := c.Database("douban").Collection("movie")
+
+	updateResult, err := col.UpdateOne(context.TODO(), filter, update)
+	if err != nil {
+		log.Fatal("%s", err)
+	}
+
+	log.Info("Matched %v documents and updated %v documents.\n", updateResult.MatchedCount, updateResult.ModifiedCount)
 }

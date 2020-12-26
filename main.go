@@ -8,7 +8,11 @@ import (
 	"github.com/sysu-yunz/doubanAnalysis/config"
 	"github.com/sysu-yunz/doubanAnalysis/db"
 	"github.com/sysu-yunz/doubanAnalysis/global"
+	ll "github.com/sysu-yunz/doubanAnalysis/log"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +25,7 @@ var (
 
 func init() {
 	if err != nil {
-		log.Fatal("Init Bot %+v", err)
+		log.Fatalf("Init Bot %+v", err)
 	}
 
 	mgoPwd := config.ViperEnvVariable("MGO_PWD")
@@ -30,8 +34,12 @@ func init() {
 
 
 func main() {
-	ms := getMovies()
-	global.MgoDB.InsertMoviesBasic(ms)
+	//ms := getMovies()
+	//global.MgoDB.InsertMoviesBasic(ms)
+
+	//getRTMovies()
+
+
 }
 
 func getMovies() []db.Movie {
@@ -56,6 +64,23 @@ func getMovies() []db.Movie {
 	}
 
 	return ms
+}
+
+func getRTMovies() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cur := global.MgoDB.GetMovies()
+	for cur.Next(ctx) {
+		var result db.Movie
+		err := cur.Decode(&result)
+		if err != nil { ll.Error("Decode watch %+v", err) }
+
+		// doc := getHTML(result.Link, "div#info")
+		doc := reqHTML(result.Link)
+		result.RunTime, result.Ep = findSubjectRunTime(doc)
+		global.MgoDB.UpdateMovieRT(result)
+	}
 }
 
 func getHTML(url string, wait interface{}) *goquery.Document {
@@ -93,7 +118,42 @@ func getHTML(url string, wait interface{}) *goquery.Document {
 	return doc
 }
 
-func findSubjectRunTime(doc *goquery.Document) {
+
+func reqHTML(url string) *goquery.Document {
+	client := &http.Client {}
+
+	var req *http.Request
+
+	req = config.ReqChrome(url)
+
+	//if RandBool() {
+	//	fmt.Println("------------------------------------------------------")
+	//	req = reqChrome(url)
+	//} else {
+	//	fmt.Println("********************************************************")
+	//	req = reqSafari(url)
+	//}
+
+	ll.Info("正在请求网页: %s", url)
+	res, err := client.Do(req)
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	htmlContent := fmt.Sprintf("%s\n", body)
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return doc
+}
+
+func RandBool() bool {
+	rand.Seed(time.Now().UnixNano())
+	return rand.Intn(2) == 1
+}
+
+func findSubjectRunTime(doc *goquery.Document) (rt string, eps string){
 
 	//doc.Find("#info").Each(func(i int, s *goquery.Selection) {
 	//	op, _ := s.Attr("property")
@@ -102,28 +162,39 @@ func findSubjectRunTime(doc *goquery.Document) {
 	//		fmt.Println(con)
 	//	}
 	//})
-
-	var isMark bool
+	var mark int
 	doc.Find("div#info").Contents().Each(func(i int, s *goquery.Selection) {
 		if s.Text() == "片长:" {
-			fmt.Printf("片长:%s\n", s.Next().Text())
+			rt = s.Next().Text()
+			eps = "1"
+			fmt.Printf("片长:%s\n", rt)
 		}
 
 		if s.Text() == "集数:" {
 			goquery.NodeName(s.Next())
 			fmt.Printf("集数: ")
-			isMark = true
+			mark = 1
 		}
 		if s.Text() == "单集片长:" {
 			fmt.Printf("单集片长:")
-			isMark = true
+			mark = 2
 		}
 
-		if goquery.NodeName(s) == "#text" && isMark {
+		if goquery.NodeName(s) == "#text" && (mark == 1 || mark == 2) {
+			if mark == 1 {
+				eps = s.Text()
+			}
+
+			if mark == 2 {
+				rt = s.Text()
+			}
+
 			fmt.Println(s.Text())
-			isMark = false
+			mark = 0
 		}
 	})
+
+	return
 }
 
 func findTotalNum(doc *goquery.Document) int {

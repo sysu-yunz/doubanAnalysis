@@ -8,6 +8,6 @@ type Movie struct {
 	Date    string
 	Comment string
 	Img     string
-	Ep      int
-	RunTime int
+	Ep      string
+	RunTime string
 }
