@@ -71,6 +71,29 @@ func (c *MgoC) GetMovies() *mongo.Cursor {
 
 }
 
+func (c *MgoC) GetAllMovies() []Movie {
+
+	var ms []Movie
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	col := c.Database("douban").Collection("movie")
+	cur, err := col.Find(ctx, bson.M{})
+	if err != nil {
+		log.Error("Finding watches %+v", err)
+	}
+
+	for cur.Next(ctx) {
+		var result Movie
+		err := cur.Decode(&result)
+		if err != nil { log.Error("Decode watch %+v", err) }
+		ms = append(ms, result)
+	}
+
+	return ms
+}
+
 func (c *MgoC) UpdateMovieRT(m Movie) {
 	filter := bson.D{{"subject", m.Subject}}
 	update := bson.M{"$set": bson.M{"ep": m.Ep, "runtime": m.RunTime}}

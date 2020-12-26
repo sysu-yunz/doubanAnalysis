@@ -39,7 +39,41 @@ func main() {
 
 	//getRTMovies()
 
+	calTotalRT()
+}
 
+func calTotalRT() {
+	var total int
+	ms := global.MgoDB.GetAllMovies()
+	re := regexp.MustCompile("[0-9]+")
+	for _, m := range ms {
+
+		var ep, rt int
+		eps := re.FindAllString(m.Ep, -1)
+		rts := re.FindAllString(m.RunTime, -1)
+
+		if eps != nil {
+			ep, err = strconv.Atoi(eps[0])
+			if err != nil {
+				ll.Error("%d", err)
+			}
+		} else {
+			ep = 10
+		}
+
+		if rts != nil {
+			rt, err = strconv.Atoi(rts[0])
+			if err != nil {
+				ll.Error("%d", err)
+			}
+		} else {
+			rt = 60
+		}
+
+		total = total + ep*rt
+	}
+
+	fmt.Println(total)
 }
 
 func getMovies() []db.Movie {
