@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/chromedp"
+	"github.com/sysu-yunz/doubanAnalysis/config"
+	"github.com/sysu-yunz/doubanAnalysis/db"
+	"github.com/sysu-yunz/doubanAnalysis/global"
 	"log"
 	"regexp"
 	"strconv"
@@ -12,35 +15,52 @@ import (
 	"time"
 )
 
-func main() {
-	url1 := "https://movie.douban.com/subject/24723061/"
-	doc := getHTML(url1, "div.info")
-	findSubjectRunTime(doc)
+var (
+	err error
+)
 
-	url2 := "https://movie.douban.com/subject/2375059/"
-	doc2 := getHTML(url2, "div#info")
-	findSubjectRunTime(doc2)
+func init() {
+	if err != nil {
+		log.Fatal("Init Bot %+v", err)
+	}
+
+	mgoPwd := config.ViperEnvVariable("MGO_PWD")
+	global.MgoDB = db.NewDB(mgoPwd)
 }
 
-func getxxx() {
-	url := `https://movie.douban.com/people/dukeyunz/collect`
+
+func main() {
+	ms := getMovies()
+	global.MgoDB.InsertMoviesBasic(ms)
+}
+
+func getMovies() []db.Movie {
+
+	var ms []db.Movie
+
+	url := `https://movie.douban.com/people/`+config.ViperEnvVariable("DoubanID")+`/collect`
 	doc := getHTML(url, `div[class="info"]`)
-	findBasicSubjectInfo(doc)
+	start := findBasicSubjectInfo(doc)
+	ms = append(ms, start...)
 
 	totalPage := findTotalNum(doc)/15 + 1
+	// totalPage := 1
 	// 翻页-组装URL
 	// https://movie.douban.com/people/dukeyunz/collect?start=15&sort=time&rating=all&filter=all&mode=grid
 	// 因为第一页已经跑过一次了，直接从第二页开始
+
 	for i := 1; i < totalPage; i++ {
 		currentURL := fmt.Sprintf("%s?start=%d&sort=time&rating=all&filter=all&mode=grid", url, i*15)
 		currentDoc := getHTML(currentURL, `div[class="info"]`)
-		findBasicSubjectInfo(currentDoc)
+		ms = append(ms, findBasicSubjectInfo(currentDoc)...)
 	}
+
+	return ms
 }
 
 func getHTML(url string, wait interface{}) *goquery.Document {
 	options := []chromedp.ExecAllocatorOption{
-		chromedp.Flag("headless",false),
+		chromedp.Flag("headless",true),
 		chromedp.Flag("blink-settings","imageEnable=false"),
 		chromedp.UserAgent(`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko)`),
 	}
@@ -119,7 +139,7 @@ func findTotalNum(doc *goquery.Document) int {
 	return 0
 }
 
-func findBasicSubjectInfo(doc *goquery.Document) {
+func findBasicSubjectInfo(doc *goquery.Document) []db.Movie {
 	// 获取内容
 	// title 标题
 	// <li class="title">
@@ -143,6 +163,7 @@ func findBasicSubjectInfo(doc *goquery.Document) {
 	// img 图片
 	// <img alt="Warrior" src="https://img9.doubanio.com/view/photo/s_ratio_poster/public/p2619810129.webp" class="">
 
+	var ms []db.Movie
 	doc.Find(".item").Each(func(i int, s *goquery.Selection) {
 		// For each item found, get the band and title
 		img, _ := s.Find("img").Attr("src")
@@ -153,6 +174,18 @@ func findBasicSubjectInfo(doc *goquery.Document) {
 		rate, _ := dateSel.Prev().Attr("class")
 		date := dateSel.Text()
 		comment := s.Find(".comment").Text()
-		fmt.Printf("%d: %s %s \n %s - %s \n %s \n %s \n\n", i, title, link, rate, date, comment, img)
+		la := strings.Split(link, "/")
+		subject := la[len(la)-2]
+		ms = append(ms, db.Movie{
+			Subject: subject,
+			Title: title,
+			Link: link,
+			Rate: rate,
+			Date: date,
+			Comment: comment,
+			Img: img,
+		})
 	})
+
+	return ms
 }
